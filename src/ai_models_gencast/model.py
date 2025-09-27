@@ -9,7 +9,6 @@
 import dataclasses
 import functools
 import gc
-import logging
 import math
 import os
 import warnings
@@ -18,23 +17,26 @@ from contextlib import nullcontext
 import numpy as np
 import xarray
 from ai_models.model import Model
+from loguru import logger
 
 from .input import create_training_xarray
 from .output import save_output_xarray
 
-LOG = logging.getLogger(__name__)
+LOG = logger
 
 
 try:
     import haiku as hk
     import jax
-    from graphcast import checkpoint
-    from graphcast import data_utils
-    from graphcast import gencast
-    from graphcast import nan_cleaning
-    from graphcast import normalization
-    from graphcast import rollout
-    from graphcast import xarray_jax
+    from graphcast import (
+        checkpoint,
+        data_utils,
+        gencast,
+        nan_cleaning,
+        normalization,
+        rollout,
+        xarray_jax,
+    )
 
 except ModuleNotFoundError as e:
     msg = "You need to install Graphcast/Gencast from git to use this model. See README.md for details."
@@ -92,7 +94,9 @@ class GenCast(Model):
         self.lagged = [-12, 0]
         self.params = None
         self.ordering = self.param_sfc + [
-            f"{param}{level}" for param in self.param_level_pl[0] for level in self.param_level_pl[1]
+            f"{param}{level}"
+            for param in self.param_level_pl[0]
+            for level in self.param_level_pl[1]
         ]
 
         if isinstance(self.member_number, str):
@@ -102,7 +106,9 @@ class GenCast(Model):
         elif self.member_number is None:
             self.member_number = list(range(1, self.num_ensemble_members + 1))
         else:
-            raise TypeError(f"`member_number` must be a string or int, not {type(self.member_number)}")
+            raise TypeError(
+                f"`member_number` must be a string or int, not {type(self.member_number)}"
+            )
 
         if not len(self.member_number) == self.num_ensemble_members:
             raise ValueError(
@@ -134,7 +140,12 @@ class GenCast(Model):
     @staticmethod
     def _drop_state(fn):
         def internal_func(*a, **kw):
-            ex_kw = {"rng": a[0], "inputs": a[1], "targets_template": a[2], "forcings": a[3]}
+            ex_kw = {
+                "rng": a[0],
+                "inputs": a[1],
+                "targets_template": a[2],
+                "forcings": a[3],
+            }
             return fn(**ex_kw, **kw)[0]
 
         return internal_func
@@ -145,16 +156,28 @@ class GenCast(Model):
             def get_path(filename):
                 return os.path.join(self.assets, filename)
 
-            diffs_stddev_by_level = xarray.load_dataset(get_path(self.download_files[0])).compute()
+            diffs_stddev_by_level = xarray.load_dataset(
+                get_path(self.download_files[0])
+            ).compute()
 
-            mean_by_level = xarray.load_dataset(get_path(self.download_files[1])).compute()
+            mean_by_level = xarray.load_dataset(
+                get_path(self.download_files[1])
+            ).compute()
 
-            stddev_by_level = xarray.load_dataset(get_path(self.download_files[2])).compute()
+            stddev_by_level = xarray.load_dataset(
+                get_path(self.download_files[2])
+            ).compute()
 
-            min_by_level = xarray.load_dataset(get_path(self.download_files[3])).compute()
+            min_by_level = xarray.load_dataset(
+                get_path(self.download_files[3])
+            ).compute()
 
             def construct_wrapped_gencast(
-                sampler_config, task_config, denoiser_architecture_config, noise_config, noise_encoder_config
+                sampler_config,
+                task_config,
+                denoiser_architecture_config,
+                noise_config,
+                noise_encoder_config,
             ):
                 """Constructs and wraps the GenCast Predictor."""
                 predictor = gencast.GenCast(
@@ -194,7 +217,11 @@ class GenCast(Model):
                 noise_encoder_config,
             ):
                 predictor = construct_wrapped_gencast(
-                    sampler_config, task_config, denoiser_architecture_config, noise_config, noise_encoder_config
+                    sampler_config,
+                    task_config,
+                    denoiser_architecture_config,
+                    noise_config,
+                    noise_encoder_config,
                 )
                 return predictor(
                     inputs,
@@ -211,14 +238,21 @@ class GenCast(Model):
                 self.sampler_config = self.ckpt.sampler_config
                 self.noise_config = self.ckpt.noise_config
                 self.noise_encoder_config = self.ckpt.noise_encoder_config
-                self.denoiser_architecture_config = self.ckpt.denoiser_architecture_config
+                self.denoiser_architecture_config = (
+                    self.ckpt.denoiser_architecture_config
+                )
 
                 # Replace attention mechanism.
                 # See https://github.com/google-deepmind/graphcast/blob/main/docs/cloud_vm_setup.md#running-inference-on-gpu
-                splash_spt_cfg = self.ckpt.denoiser_architecture_config.sparse_transformer_config
-                tbd_spt_cfg = dataclasses.replace(splash_spt_cfg, attention_type="triblockdiag_mha", mask_type="full")
+                splash_spt_cfg = (
+                    self.ckpt.denoiser_architecture_config.sparse_transformer_config
+                )
+                tbd_spt_cfg = dataclasses.replace(
+                    splash_spt_cfg, attention_type="triblockdiag_mha", mask_type="full"
+                )
                 self.denoiser_architecture_config = dataclasses.replace(
-                    self.ckpt.denoiser_architecture_config, sparse_transformer_config=tbd_spt_cfg
+                    self.ckpt.denoiser_architecture_config,
+                    sparse_transformer_config=tbd_spt_cfg,
                 )
 
                 LOG.info("Model description: %s", self.ckpt.description)
@@ -227,7 +261,12 @@ class GenCast(Model):
             jax.jit(self._with_configs(run_forward.init))
 
             self.model = xarray_jax.pmap(
-                jax.jit(self._with_params(self._with_configs(self._drop_state(run_forward.apply)))), dim="sample"
+                jax.jit(
+                    self._with_params(
+                        self._with_configs(self._drop_state(run_forward.apply))
+                    )
+                ),
+                dim="sample",
             )
 
     def download_assets(self, **kwargs):
@@ -246,7 +285,6 @@ class GenCast(Model):
                 os.rename(asset + ".download", asset)
 
     def run(self):
-
         oper_fcst: bool = False
         if self.num_ensemble_members == 0:
             oper_fcst = True
@@ -285,11 +323,17 @@ class GenCast(Model):
                 return os.path.join(self.assets, filename)
 
             with self.timer("Replacing constants"):
-                training_xarray["land_sea_mask"].values = np.load(get_path(self.download_masks[1]))
-                training_xarray["geopotential_at_surface"].values = np.load(get_path(self.download_masks[0]))
+                training_xarray["land_sea_mask"].values = np.load(
+                    get_path(self.download_masks[1])
+                )
+                training_xarray["geopotential_at_surface"].values = np.load(
+                    get_path(self.download_masks[0])
+                )
 
                 sst_mask = np.load(get_path(self.download_masks[2])) == False  # noqa: E712
-                training_xarray["sea_surface_temperature"] = training_xarray["sea_surface_temperature"].where(sst_mask)
+                training_xarray["sea_surface_temperature"] = training_xarray[
+                    "sea_surface_temperature"
+                ].where(sst_mask)
 
             gc.collect()
 
@@ -304,7 +348,8 @@ class GenCast(Model):
                 ) = data_utils.extract_inputs_targets_forcings(
                     training_xarray,
                     target_lead_times=[
-                        f"{int(delta.days * 24 + delta.seconds/3600):d}h" for delta in time_deltas[len(self.lagged) :]
+                        f"{int(delta.days * 24 + delta.seconds / 3600):d}h"
+                        for delta in time_deltas[len(self.lagged) :]
                     ],
                     **dataclasses.asdict(self.task_config),
                 )
@@ -315,7 +360,9 @@ class GenCast(Model):
 
         rng = jax.random.PRNGKey(0)
         # Fold in the member number to the random key
-        rngs = np.stack([jax.random.fold_in(rng, i) for i in self.member_number], axis=0)
+        rngs = np.stack(
+            [jax.random.fold_in(rng, i) for i in self.member_number], axis=0
+        )
 
         # If we have only one ensemble member, we can use the stepper as a logger
         # Otherwise due to the repeating nature of the ensemble members, we can't use it
@@ -340,17 +387,18 @@ class GenCast(Model):
                         pmap_devices=jax.local_devices(),
                     )
                 ):
-
                     num_steps = math.ceil(self.lead_time / self.hour_steps)
 
                     time_step = (i % num_steps) + 1
-                    ensemble_chunk = ((i // num_steps)) * len(jax.local_devices())
+                    ensemble_chunk = (i // num_steps) * len(jax.local_devices())
                     member_number_subset = self.member_number[
                         ensemble_chunk : ensemble_chunk + len(jax.local_devices())
                     ]
 
                     if self.debug:
-                        chunk.to_netcdf(f"chunk-{time_step=}-{ensemble_chunk=}-{member_number_subset=}.nc")
+                        chunk.to_netcdf(
+                            f"chunk-{time_step=}-{ensemble_chunk=}-{member_number_subset=}.nc"
+                        )
 
                     save_output_xarray(
                         output=chunk,
@@ -455,7 +503,6 @@ class GenCast1p0degMini(GenCast1p0deg):
 
 
 def model(model_version, **kwargs):
-
     # select with --model-version
 
     models = {
