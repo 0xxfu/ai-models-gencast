@@ -7,13 +7,13 @@
 
 
 import datetime
-import logging
 from collections import defaultdict
 
 import numpy as np
 import xarray as xr
+from loguru import logger
 
-LOG = logging.getLogger(__name__)
+LOG = logger
 
 CF_NAME_SFC = {
     "10u": "10m_u_component_of_wind",
@@ -70,7 +70,8 @@ def create_training_xarray(
 ):
     time_deltas = [
         datetime.timedelta(hours=h)
-        for h in lagged + [hour for hour in range(hour_steps, lead_time + hour_steps, hour_steps)]
+        for h in lagged
+        + [hour for hour in range(hour_steps, lead_time + hour_steps, hour_steps)]
     ]
 
     all_datetimes = [start_date + time_delta for time_delta in time_deltas]
@@ -113,7 +114,9 @@ def create_training_xarray(
                 data_vars[CF_NAME_SFC[param]] = (["lat", "lon"], fields[0].to_numpy())
                 continue
 
-            data = np.stack([field.to_numpy(dtype=np.float32) for field in fields]).reshape(
+            data = np.stack(
+                [field.to_numpy(dtype=np.float32) for field in fields]
+            ).reshape(
                 1,
                 len(given_datetimes),
                 len(lat),
@@ -134,7 +137,9 @@ def create_training_xarray(
             data_vars[CF_NAME_SFC[param]] = (["batch", "time", "lat", "lon"], data)
 
         for param, fields in pl.items():
-            data = np.stack([field.to_numpy(dtype=np.float32) for field in fields]).reshape(
+            data = np.stack(
+                [field.to_numpy(dtype=np.float32) for field in fields]
+            ).reshape(
                 1,
                 len(given_datetimes),
                 len(levels),
@@ -179,7 +184,9 @@ def create_training_xarray(
 
     with timer("Reindexing"):
         # And we want the grid south to north
-        training_xarray = training_xarray.reindex(lat=sorted(training_xarray.lat.values), copy=False)
+        training_xarray = training_xarray.reindex(
+            lat=sorted(training_xarray.lat.values), copy=False
+        )
 
     if constants:
         # Add geopotential_at_surface and land_sea_mask back in

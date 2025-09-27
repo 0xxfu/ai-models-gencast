@@ -5,16 +5,14 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import logging
 from collections import defaultdict
 
 import numpy as np
+from loguru import logger
 
-from .convert import GRIB_TO_CF
-from .convert import GRIB_TO_XARRAY_PL
-from .convert import GRIB_TO_XARRAY_SFC
+from .convert import GRIB_TO_CF, GRIB_TO_XARRAY_PL, GRIB_TO_XARRAY_SFC
 
-LOG = logging.getLogger(__name__)
+LOG = logger
 
 ACCUMULATION_VALUES = defaultdict(lambda: defaultdict(lambda: 0))
 
@@ -53,19 +51,29 @@ def save_output_xarray(
         param, level = fs.metadata("shortName"), fs.metadata("levelist", default=None)
         for i in range(num_ensemble_members):
             ensemble_member = member_numbers[i]  # Associated member number
-            time_idx = 0  # As we are saving each time individually, the index to select is 0
+            time_idx = (
+                0  # As we are saving each time individually, the index to select is 0
+            )
 
             if level is not None:
                 param = GRIB_TO_XARRAY_PL.get(param, param)
                 if param not in target_variables:
                     continue
-                values = output.isel(time=time_idx).sel(level=level).isel(sample=i).data_vars[param].values
+                values = (
+                    output.isel(time=time_idx)
+                    .sel(level=level)
+                    .isel(sample=i)
+                    .data_vars[param]
+                    .values
+                )
             else:
                 param = GRIB_TO_CF.get(param, param)
                 param = GRIB_TO_XARRAY_SFC.get(param, param)
                 if param not in target_variables:
                     continue
-                values = output.isel(time=time_idx).isel(sample=i).data_vars[param].values
+                values = (
+                    output.isel(time=time_idx).isel(sample=i).data_vars[param].values
+                )
 
             # We want to field north=>south
 
@@ -79,7 +87,12 @@ def save_output_xarray(
             if param == "total_precipitation_12hr":
                 values = accumulate(values, param, ensemble_member)
                 write(
-                    values, template=fs, stepType="accum", startStep=0, endStep=time * hour_steps, **extra_write_kwargs
+                    values,
+                    template=fs,
+                    stepType="accum",
+                    startStep=0,
+                    endStep=time * hour_steps,
+                    **extra_write_kwargs,
                 )
                 # NOTE: stepType must be before startStep and endStep
             else:
